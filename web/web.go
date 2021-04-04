@@ -1,10 +1,11 @@
 package web
 
 import (
+	"embed"
 	"fmt"
 	"github.com/gin-contrib/gzip"
 	"github.com/gin-gonic/gin"
-	"github.com/gobuffalo/packr/v2"
+	"io/fs"
 	"net/http"
 	"strconv"
 	"trojan/core"
@@ -12,16 +13,15 @@ import (
 	"trojan/web/controller"
 )
 
+//go:embed templates/*
+var f embed.FS
+
 func userRouter(router *gin.Engine) {
 	user := router.Group("/trojan/user")
 	{
 		user.GET("", func(c *gin.Context) {
 			requestUser := RequestUsername(c)
-			if requestUser == "admin" {
-				c.JSON(200, controller.UserList(""))
-			} else {
-				c.JSON(200, controller.UserList(requestUser))
-			}
+			c.JSON(200, controller.UserList(requestUser))
 		})
 		user.GET("/page", func(c *gin.Context) {
 			curPageStr := c.DefaultQuery("curPage", "1")
@@ -137,13 +137,12 @@ func commonRouter(router *gin.Engine) {
 }
 
 func staticRouter(router *gin.Engine) {
-	box := packr.New("trojanBox", "./templates")
-	router.Use(func(c *gin.Context) {
-		requestUrl := c.Request.URL.Path
-		if box.Has(requestUrl) || requestUrl == "/" {
-			http.FileServer(box).ServeHTTP(c.Writer, c.Request)
-			c.Abort()
-		}
+	staticFs, _ := fs.Sub(f, "templates/static")
+	router.StaticFS("/static", http.FS(staticFs))
+
+	router.GET("/", func(c *gin.Context) {
+		indexHTML, _ := f.ReadFile("templates/" + "index.html")
+		c.Writer.Write(indexHTML)
 	})
 }
 
@@ -161,7 +160,7 @@ func Start(host string, port int, isSSL bool) {
 	controller.CollectTask()
 	util.OpenPort(port)
 	if isSSL {
-		config := core.Load("")
+		config := core.GetConfig()
 		ssl := &config.SSl
 		router.RunTLS(fmt.Sprintf("%s:%d", host, port), ssl.Cert, ssl.Key)
 	} else {
